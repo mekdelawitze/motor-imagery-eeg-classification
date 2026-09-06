@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# data / caches
+data/
+mne_data/
+checkpoints/*.pt
+!checkpoints/.gitkeep
+
+# editor / OS
+.vscode/
+.DS_Store
+.ipynb_checkpoints/
