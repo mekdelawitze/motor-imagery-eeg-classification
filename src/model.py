@@ -51,10 +51,18 @@ class EEGNet(nn.Module):
             nn.Dropout(dropout_rate),
         )
 
-        # figure out the flattened feature size with a dummy forward pass
+        # Figure out the flattened feature size with a dummy forward pass. Use
+        # eval() here, not just no_grad() - no_grad() only disables gradient
+        # tracking, it doesn't stop BatchNorm from updating its running stats or
+        # Dropout from consuming randomness, so without eval() this dummy pass
+        # would quietly perturb BatchNorm's running mean/var using all-zero input
+        # before real training even starts.
+        was_training = self.training
+        self.eval()
         with torch.no_grad():
             dummy = torch.zeros(1, 1, channels, samples)
             feat_dim = self.block2(self.block1(dummy)).flatten(1).shape[1]
+        self.train(was_training)
 
         self.classify = nn.Linear(feat_dim, n_classes)
 

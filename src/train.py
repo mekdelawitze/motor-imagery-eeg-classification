@@ -108,6 +108,8 @@ def train_subject(
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
 
     n_channels, n_samples = data.X.shape[1], data.X.shape[2]
+    if verbose:
+        print(f"input shape: {n_channels} channels x {n_samples} time samples per trial")
     model = EEGNet(n_classes=len(data.label_names), channels=n_channels, samples=n_samples).to(device)
 
     criterion = nn.CrossEntropyLoss()

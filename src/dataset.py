@@ -75,18 +75,26 @@ def session_split(data: EEGData):
     Standard BCI IV 2a evaluation: train on session 'T' (0train), test on
     session 'E' (1test) - a harder, more realistic split than a random
     shuffle, since it tests generalization to a different day's recording.
-    Falls back to a random 80/20 split if session labels look different.
+
+    Raises if the session labels don't look like that two-session structure,
+    rather than silently falling back to a random split. A random split would
+    quietly measure a different, easier (within-session) form of
+    generalization than the cross-session split this project reports -
+    better to fail loudly than to report the wrong experiment.
     """
+    unique_sessions = sorted(set(data.sessions))
     train_mask = np.array(["train" in s.lower() or s.endswith("T") for s in data.sessions])
-    if train_mask.sum() == 0 or train_mask.sum() == len(train_mask):
-        # fallback: random split
-        rng = np.random.RandomState(42)
-        idx = rng.permutation(len(data.y))
-        split = int(0.8 * len(idx))
-        train_idx, test_idx = idx[:split], idx[split:]
-    else:
-        train_idx = np.where(train_mask)[0]
-        test_idx = np.where(~train_mask)[0]
+    n_train, n_total = int(train_mask.sum()), len(train_mask)
+
+    if n_train == 0 or n_train == n_total:
+        raise ValueError(
+            f"session_split: expected two distinct sessions to split on (e.g. "
+            f"['0train', '1test'] - BCI IV 2a's session T / session E), but saw "
+            f"{unique_sessions}. Refusing to silently fall back to a random split."
+        )
+
+    train_idx = np.where(train_mask)[0]
+    test_idx = np.where(~train_mask)[0]
 
     train_ds = EEGDataset(data.X[train_idx], data.y[train_idx])
     test_ds = EEGDataset(data.X[test_idx], data.y[test_idx])

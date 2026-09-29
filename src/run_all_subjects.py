@@ -19,7 +19,7 @@ def main():
     results = []
     for subject in SUBJECTS:
         print(f"\n=== subject {subject} ===")
-        acc = train_subject(subject=subject, epochs=100, patience=15, verbose=True)
+        acc = train_subject(subject=subject, epochs=100, verbose=True)  # patience: use train_subject's default (currently 30)
         results.append((subject, acc))
         print(f"=== subject {subject} done: {acc:.3f} ===")
 
