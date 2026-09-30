@@ -2,8 +2,16 @@
 Load a trained subject's checkpoint and inspect where it goes wrong: prints a
 per-class breakdown and saves a confusion matrix plot.
 
+Loads checkpoints/subject{N}_seed{seed}_best.pt (seed 42 by default, matching
+train_subject()'s default). If you've since run a seed-stability sweep for
+this subject, re-run `python -m src.train --subject N --epochs 100` first to
+regenerate the seed-42 checkpoint - otherwise there may not be a matching
+file on disk (checkpoints are seed-tagged specifically so a seed sweep can't
+silently swap out the model this script analyzes).
+
 Usage:
     python -m src.analyze_subject --subject 6
+    python -m src.analyze_subject --subject 6 --seed 0   # analyze a specific seed's model
 """
 
 import argparse
@@ -21,6 +29,7 @@ from src.utils import get_device
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--subject", type=int, required=True)
+    p.add_argument("--seed", type=int, default=42, help="which seed's checkpoint to load (default: 42, the canonical run)")
     p.add_argument("--batch-size", type=int, default=32)
     return p.parse_args()
 
@@ -36,7 +45,8 @@ def main():
     n_channels, n_samples = data.X.shape[1], data.X.shape[2]
     model = EEGNet(n_classes=len(data.label_names), channels=n_channels, samples=n_samples).to(device)
 
-    ckpt_path = f"checkpoints/subject{args.subject}_best.pt"
+    ckpt_path = f"checkpoints/subject{args.subject}_seed{args.seed}_best.pt"
+    print(f"loading checkpoint: {ckpt_path}")
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     model.eval()
 

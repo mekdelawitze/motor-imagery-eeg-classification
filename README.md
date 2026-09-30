@@ -11,25 +11,34 @@ loaded via [MOABB](https://neurotechx.github.io/moabb/) (MOABB names it `BNCI201
 - Across 5 tested seeds per subject (0-4), EEGNet beats the CSP+LDA baseline on a majority of
   seeds (at least 3 of 5) for 7 of 9 subjects, losing on a majority of seeds for only 2 of 9
   (subjects 2 and 6). Using each subject's median-of-5-seeds accuracy, EEGNet's mean is ~61.6% vs.
-  the baseline's 60.3% - a real but modest +1.3 percentage point edge (see "How stable are these
-  results?" below for the full per-subject table).
+  the baseline's 60.3% - a modest +1.3 percentage point difference in validation accuracy under
+  the current checkpoint-selection procedure, not a demonstrated generalization edge (see "How
+  stable are these results?" below for the full per-subject table, and the Methodology caveat on
+  what these numbers do and don't measure).
 - The single documented reproduction command (`run_all_subjects.py`, seed 42 for every subject)
   produces a larger-looking margin: 64.2% mean, winning 6 of 9 subjects and losing 6, 8, and 9.
   That number is exactly reproducible from the commands below, but seed 42 is a documented
-  outlier for several subjects - it's the best of 5 tested seeds for subject 2, and the worst of
-  5 for subjects 8 and 9 - so it isn't the number I'm leading with.
+  outlier relative to the 5 separately tested seeds (0-4) for several subjects - for subject 2 it
+  lands near the top of that tested range (higher than 4 of the 5, though not the single highest:
+  one tested seed reached 56.2% vs. seed 42's 55.2%), and for subjects 8 and 9 it lands below the
+  entire tested range - so it isn't the number I'm leading with.
 - CSP+LDA baseline: 60.3% mean validation accuracy, untuned (see "Did tuning the baseline help?"
   below).
-- Best single result: 81.9% (EEGNet, subject 3, seed 42) - though this actually *understates*
-  that subject's typical performance; its 5-seed median is 86.5%.
+- Best result in the documented seed-42 run: 81.9% (EEGNet, subject 3) - though this
+  understates that subject's typical performance (5-seed median 86.5%) and isn't even the
+  highest value observed for subject 3 across all tested seeds: one of the 5 additional seeds
+  reached 87.8%.
 - Cross-validating the baseline's own hyperparameters (CSP components, LDA shrinkage) didn't
   improve it - mean accuracy actually dropped slightly to 59.7% (see "Did tuning the baseline
   help?" below)
 - 4-class motor imagery, 22 EEG channels, 576 trials/subject total
-- A real bug (BatchNorm running statistics getting perturbed by an all-zero shape-inference pass
-  run in training mode) was quietly suppressing EEGNet's accuracy on several subjects until
-  fixed - most dramatically subject 2, up 17.7 percentage points once fixed. See the note in
-  Methodology and the "Confusion matrices" section below.
+- A shape-inference bug (a dummy forward pass used to compute the model's flattened feature
+  size was running in training mode) was quietly hurting EEGNet's accuracy on several subjects
+  until fixed - most dramatically subject 2, up 17.7 percentage points once fixed. The fix bundles
+  two effects together (it stops BatchNorm's running stats from being corrupted, but also shifts
+  the classifier's initial weights via a random-number-stream change - see Methodology), so I
+  can't cleanly attribute the improvement to BatchNorm alone. See the note in Methodology and the
+  "Confusion matrices" section below.
 
 ## Methodology
 
@@ -57,13 +66,36 @@ means these numbers are better read as "best validation-session performance unde
 own selection procedure" than as an unbiased estimate of generalization to genuinely unseen data.
 
 **A bug I found and fixed while writing this up**: EEGNet's shape-inference step runs a dummy
-forward pass (an all-zero input) to figure out its flattened feature size before real training
-starts. That dummy pass originally ran in training mode, so it was quietly perturbing BatchNorm's
-running mean/variance with statistics from an all-zero input before the model ever saw real data.
-Switching it to eval mode (see `model.py`) changed results meaningfully across several subjects,
-most dramatically subject 2: 37.5% before the fix (EEGNet's worst result, an 11.1-point loss) to
-55.2% after (a 6.6-point win). All numbers in this README are from after that fix. It's a good
-reminder that a "small" shape-inference helper isn't automatically side-effect-free.
+forward pass (an all-zero input) to figure out its flattened feature size, and the classifier's
+final `Linear` layer is constructed *after* that pass, sized from the feature count it returns.
+That dummy pass originally ran in training mode, which does two things at once: BatchNorm updates
+its running mean/variance using statistics from an all-zero input before the model ever sees real
+data, and the two `Dropout` layers in the conv trunk consume random draws from the same RNG
+stream the classifier's weights are about to be initialized from. Switching the dummy pass to
+eval mode (see `model.py`) stops both effects simultaneously. Results changed meaningfully across
+several subjects, most dramatically subject 2: 37.5% before the fix (EEGNet's worst result, an
+11.1-point loss) to 55.2% after (a 6.6-point win) - but I can't cleanly attribute that swing to
+the BatchNorm-statistics effect specifically, since the fix also changes the classifier's initial
+weights via the RNG-stream shift. Isolating the two would need a separate experiment (e.g. fixing
+BatchNorm's eval behavior without changing how much randomness the dummy pass consumes). What I
+can say is that the combined fix - eval-mode shape inference - measurably changes results and is
+the more correct thing to do regardless of which mechanism dominates. All numbers in this README
+are from after that fix. It's a good reminder that a "small" shape-inference helper isn't
+automatically side-effect-free.
+
+**A second bug, caught during review**: every training run - `train.py`, `run_all_subjects.py`,
+and `seed_stability.py` alike - saved its checkpoint to the same path,
+`checkpoints/subject{N}_best.pt`, regardless of which seed produced it. That's fine as long as
+nothing trains a different seed for the same subject afterward, but `seed_stability.py` does
+exactly that: it trains 5 seeds per subject in sequence, and each seed's checkpoint silently
+overwrote the last, so after a sweep the file held whichever seed ran last (seed 4, given
+`--seeds 0,1,2,3,4`) rather than seed 42, the seed this README's numbers are reported for.
+Re-running `analyze_subject.py` after a seed sweep would have silently analyzed the wrong model,
+with no error. Checkpoint filenames now include the seed
+(`checkpoints/subject{N}_seed{S}_best.pt`), and `analyze_subject.py` takes an explicit `--seed`
+(default 42) and prints which file it loads. The confusion matrices and numbers already in this
+README were captured before any seed sweep touched their subjects, so they're unaffected by this -
+but it's the kind of silent-mismatch bug that's worth flagging even after the fact.
 
 A stricter protocol would select all
 hyperparameters and stopping points using session T alone (e.g. via folds within T), then run a
@@ -94,13 +126,15 @@ Chance level is 25%.
 The more representative summary of these results is the majority-of-seeds view from the
 stability checks below: across 5 tested seeds per subject, EEGNet beats CSP+LDA on a majority of
 seeds for 7 of 9 subjects, with a median-of-seeds mean of ~61.6% against the baseline's 60.3% - a
-real but modest +1.3 percentage point edge. The table above (64.2% vs. 60.3%, winning 6 of 9
+modest +1.3 percentage point difference. The table above (64.2% vs. 60.3%, winning 6 of 9
 subjects) is what the single documented reproduction command actually produces at seed 42, and
-it's a real, reproducible result, but it isn't the most representative one - seed 42 is a
+it's an exactly reproducible result, but it isn't the most representative one - seed 42 is a
 demonstrated outlier for subjects 2, 8, and 9 specifically (see "How stable are these results?"
-below). Given the checkpoint-selection caveat above, either framing is best read as "EEGNet has a
-real, if modest, edge under this specific selection procedure" rather than a claim that it
-generalizes better in some dataset-independent sense.
+below). Given the checkpoint-selection caveat above (EEGNet's reported number is the best of up
+to 100 per-epoch looks at session E; the baseline's is a single deterministic fit), either framing
+is best read as an observed validation-score difference under the current, checkpoint-selection-
+favoring procedure - not a demonstrated claim that EEGNet generalizes better in some
+dataset-independent sense.
 
 These numbers changed twice from earlier versions of this README, for two distinct reasons worth
 being explicit about. First, an early-stopping bug (see "Training curve and an early-stopping
@@ -142,8 +176,8 @@ Two ways to summarize this, both defensible and not quite the same:
   EEGNet 64.2% mean, winning 6 of 9 subjects, losing 6, 8, and 9.
 - **A majority-of-seeds view** (using "at least 3 of 5 tested seeds beat baseline" as the win/loss
   criterion, and the per-subject median instead of the single seed-42 value): EEGNet wins 7 of 9
-  subjects, losing only 2 and 6, with a median-of-seeds mean of ~61.6% - a +1.3-point edge over
-  the 60.3% baseline instead of +3.9 points.
+  subjects, losing only 2 and 6, with a median-of-seeds mean of ~61.6% - a +1.3-point difference
+  from the 60.3% baseline instead of +3.9 points.
 
 Neither framing is more "correct" in an absolute sense - the seed-42 numbers are exactly
 reproducible from the commands in this README, and the majority-of-seeds view is more
@@ -179,8 +213,9 @@ demonstrated cause - what I can say for sure is that tuning didn't help here, no
 
 Subject 6 (43.4%, EEGNet's one genuinely stable loss - see the stability table above): all four
 classes are weak, but `right_hand` is still the low point at 37.5% recall - up from the pre-fix
-25% (exact chance), so the BatchNorm fix helped here too, just not enough to close the gap with
-the baseline. The single biggest source of confusion is still `right_hand` trials predicted as
+25% (exact chance), so the shape-inference fix helped here too (see the Methodology note on why I
+can't cleanly credit that to BatchNorm specifically), just not enough to close the gap with the
+baseline. The single biggest source of confusion is still `right_hand` trials predicted as
 `left_hand` (27 of 72) - the same mirror-image confusion pattern the pre-fix model showed, just
 with different counts. That's the opposite of subject 3's pattern below, where left/right hand
 were the two *best*-separated classes.
@@ -198,9 +233,11 @@ see the stability table above, where the 5-seed median is 86.5% against the repo
 
 ![Subject 3 confusion matrix](results/confusion_subject3.png)
 
-Subject 2 (55.2%) is worth a specific look because it's the subject the BatchNorm bug affected
-most: before the fix this was EEGNet's single worst result (37.5%, an 11.1-point loss); after it,
-a 6.6-point win. The fixed model classifies `feet` very well (87.5% recall) but still tangles up
+Subject 2 (55.2%) is worth a specific look because it's the subject the shape-inference fix
+affected most (see the Methodology note above on why that fix bundles a BatchNorm-statistics
+effect together with a classifier-initialization effect, so I can't cleanly credit one or the
+other): before the fix this was EEGNet's single worst result (37.5%, an 11.1-point loss); after
+it, a 6.6-point win. The fixed model classifies `feet` very well (87.5% recall) but still tangles up
 `left_hand`, `right_hand`, and `tongue` with each other - the single biggest confusion is
 `tongue` trials predicted as `right_hand` (26 of 72), with `right_hand` trials predicted as
 `left_hand` close behind (23 of 72). And per the stability table above, this "win" is itself
@@ -318,6 +355,11 @@ python -m src.seed_stability --subjects 1,2,3,4,5,6,7,8,9 --seeds 0,1,2,3,4
 - Investigate *why* seed 42 landed as an outlier for subjects 2, 8, and 9 specifically - more
   seeds per subject, or digging into what's different about those particular runs, would help
   tell "genuine training noise" apart from something more systematic about that one seed.
+- Record which code version (e.g. a git commit hash) produced each row of
+  `results/seed_stability.csv`. The merge logic in `seed_stability.py` deliberately keeps rows
+  from earlier runs when re-run on a subset of subjects (so a `--subjects 7` run doesn't erase an
+  earlier `--subjects 2,5,6,9` run's rows) - but nothing currently stops that from silently mixing
+  rows generated under different code versions after a future change to `model.py` or `train.py`.
 - Dig into *why* baseline tuning didn't transfer across sessions - e.g. whether per-session
   recalibration (a common approach in real BCI systems) closes the gap.
 - Different frequency band (`fmin`/`fmax` in `dataset.py`) or epoch window (`tmin`/`tmax`).

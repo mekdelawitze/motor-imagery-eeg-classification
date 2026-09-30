@@ -130,7 +130,14 @@ def train_subject(
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), f"checkpoints/subject{subject}_best.pt")
+            # Checkpoint filename includes the seed: without this, any script
+            # that calls train_subject() with a non-canonical seed (e.g. a
+            # seed-stability sweep) silently overwrites the canonical
+            # subject{N}_best.pt checkpoint from the last seed it happened to
+            # run, so a later analyze_subject.py call could analyze a
+            # different model than the one whose accuracy is reported
+            # elsewhere. Tagging the filename by seed prevents that collision.
+            torch.save(model.state_dict(), f"checkpoints/subject{subject}_seed{seed}_best.pt")
 
         if verbose and (epoch % 5 == 0 or epoch == 1):
             print(
