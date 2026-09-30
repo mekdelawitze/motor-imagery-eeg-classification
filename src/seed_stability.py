@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import csv
+import os
 import statistics
 
 from src.train import train_subject
@@ -51,12 +52,32 @@ def main():
         )
 
     print("\n==== summary ====")
-    with open("results/seed_stability.csv", "w", newline="") as f:
+    csv_path = "results/seed_stability.csv"
+    # Merge with whatever's already on disk instead of overwriting it, so
+    # running this on a subset of subjects (e.g. --subjects 7) doesn't erase
+    # rows from an earlier run on a different subset (e.g. --subjects 2,5,6,9).
+    # This is the fix for a real bug: this file used to open in "w" mode
+    # unconditionally, which silently dropped subject 7's data when it was
+    # run separately from the 2,5,6,9 run.
+    existing_rows = []
+    if os.path.exists(csv_path):
+        with open(csv_path, newline="") as f:
+            for row in csv.DictReader(f):
+                existing_rows.append((int(row["subject"]), int(row["seed"]), float(row["val_accuracy"])))
+    # Rows for subjects we just reran replace their old rows; everything else is kept.
+    existing_rows = [r for r in existing_rows if r[0] not in all_results]
+    new_rows = [
+        (subject, seed, acc)
+        for subject, accs in all_results.items()
+        for seed, acc in zip(seeds, accs)
+    ]
+    merged_rows = sorted(existing_rows + new_rows, key=lambda r: (r[0], r[1]))
+
+    with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["subject", "seed", "val_accuracy"])
-        for subject, accs in all_results.items():
-            for seed, acc in zip(seeds, accs):
-                writer.writerow([subject, seed, acc])
+        for subject, seed, acc in merged_rows:
+            writer.writerow([subject, seed, acc])
     for subject, accs in all_results.items():
         mean = statistics.mean(accs)
         median = statistics.median(accs)

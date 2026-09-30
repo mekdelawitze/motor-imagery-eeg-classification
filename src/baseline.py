@@ -54,8 +54,11 @@ def tune_baseline(subject: int, n_components_grid=None, cv: int = 5, verbose: bo
     """
     Cross-validated hyperparameter selection using ONLY the training session
     (session T). Session E (val) is untouched until the final .score() call,
-    so this doesn't leak validation info into model selection - same rule
-    EEGNet's own training was held to.
+    so this doesn't leak validation info into model selection. Note this is
+    actually stricter than what EEGNet's own training does: EEGNet's
+    checkpoint selection watches session E accuracy every epoch (see the
+    README's methodology caveat), so this tuning procedure and EEGNet's
+    training procedure are not held to the same rule.
 
     Grid: CSP n_components x {no LDA shrinkage, auto shrinkage}. Shrinkage
     needs the 'lsqr' solver (sklearn's default 'svd' solver doesn't support

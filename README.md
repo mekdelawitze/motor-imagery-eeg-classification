@@ -8,15 +8,28 @@ loaded via [MOABB](https://neurotechx.github.io/moabb/) (MOABB names it `BNCI201
 
 ## Key results
 
-- EEGNet: 60.9% mean validation accuracy across 9 subjects (chance = 25%)
-- CSP+LDA baseline: 60.3% mean validation accuracy - EEGNet is slightly ahead on average
-- EEGNet wins 7 of 9 subjects, losing only subjects 2 and 6 - though subject 2 is close enough
-  that the result depends on random seed (see "How stable are these results?" below)
+- Across 5 tested seeds per subject (0-4), EEGNet beats the CSP+LDA baseline on a majority of
+  seeds (at least 3 of 5) for 7 of 9 subjects, losing on a majority of seeds for only 2 of 9
+  (subjects 2 and 6). Using each subject's median-of-5-seeds accuracy, EEGNet's mean is ~61.6% vs.
+  the baseline's 60.3% - a real but modest +1.3 percentage point edge (see "How stable are these
+  results?" below for the full per-subject table).
+- The single documented reproduction command (`run_all_subjects.py`, seed 42 for every subject)
+  produces a larger-looking margin: 64.2% mean, winning 6 of 9 subjects and losing 6, 8, and 9.
+  That number is exactly reproducible from the commands below, but seed 42 is a documented
+  outlier for several subjects - it's the best of 5 tested seeds for subject 2, and the worst of
+  5 for subjects 8 and 9 - so it isn't the number I'm leading with.
+- CSP+LDA baseline: 60.3% mean validation accuracy, untuned (see "Did tuning the baseline help?"
+  below).
+- Best single result: 81.9% (EEGNet, subject 3, seed 42) - though this actually *understates*
+  that subject's typical performance; its 5-seed median is 86.5%.
 - Cross-validating the baseline's own hyperparameters (CSP components, LDA shrinkage) didn't
   improve it - mean accuracy actually dropped slightly to 59.7% (see "Did tuning the baseline
   help?" below)
-- Best single result: 79.9% (EEGNet, subject 3)
 - 4-class motor imagery, 22 EEG channels, 576 trials/subject total
+- A real bug (BatchNorm running statistics getting perturbed by an all-zero shape-inference pass
+  run in training mode) was quietly suppressing EEGNet's accuracy on several subjects until
+  fixed - most dramatically subject 2, up 17.7 percentage points once fixed. See the note in
+  Methodology and the "Confusion matrices" section below.
 
 ## Methodology
 
@@ -38,11 +51,21 @@ validation-session score across up to 100 epochs (whichever checkpoint had the h
 on session E gets saved and reported). The baseline doesn't have an analogous step - it's fit
 once on session T and scored once on session E. That's not an apples-to-apples comparison:
 picking the best of many looks at the validation session is a real selection advantage that a
-single deterministic fit doesn't get. This is also standard practice in most published
-EEGNet/CSP+LDA work on this exact dataset (validation-based early stopping, reporting the
-selected score), so it's not unusual - but it means these numbers are better read as "best
-validation-session performance under each method's own selection procedure" than as an unbiased
-estimate of generalization to genuinely unseen data. A stricter protocol would select all
+single deterministic fit doesn't get. I haven't systematically surveyed published EEGNet/CSP+LDA
+work on this exact dataset, so I won't claim this is standard practice - but common or not, it
+means these numbers are better read as "best validation-session performance under each method's
+own selection procedure" than as an unbiased estimate of generalization to genuinely unseen data.
+
+**A bug I found and fixed while writing this up**: EEGNet's shape-inference step runs a dummy
+forward pass (an all-zero input) to figure out its flattened feature size before real training
+starts. That dummy pass originally ran in training mode, so it was quietly perturbing BatchNorm's
+running mean/variance with statistics from an all-zero input before the model ever saw real data.
+Switching it to eval mode (see `model.py`) changed results meaningfully across several subjects,
+most dramatically subject 2: 37.5% before the fix (EEGNet's worst result, an 11.1-point loss) to
+55.2% after (a 6.6-point win). All numbers in this README are from after that fix. It's a good
+reminder that a "small" shape-inference helper isn't automatically side-effect-free.
+
+A stricter protocol would select all
 hyperparameters and stopping points using session T alone (e.g. via folds within T), then run a
 single frozen evaluation of each method on session E.
 
@@ -52,55 +75,86 @@ single frozen evaluation of each method on session E.
 
 | Subject | EEGNet | CSP+LDA baseline |
 |---|---|---|
-| 1 | 74.3% | 69.1% |
-| 2 | 37.5% | 48.6% |
-| 3 | 79.9% | 73.6% |
-| 4 | 57.6% | 54.9% |
-| 5 | 41.7% | 35.8% |
-| 6 | 36.8% | 46.5% |
-| 7 | 66.0% | 62.8% |
-| 8 | 76.7% | 74.7% |
-| 9 | 77.8% | 76.7% |
-| **Mean** | **60.9%** | **60.3%** |
+| 1 | 75.3% | 69.1% |
+| 2 | 55.2% | 48.6% |
+| 3 | 81.9% | 73.6% |
+| 4 | 60.1% | 54.9% |
+| 5 | 42.4% | 35.8% |
+| 6 | 43.4% | 46.5% |
+| 7 | 70.1% | 62.8% |
+| 8 | 73.6% | 74.7% |
+| 9 | 75.3% | 76.7% |
+| **Mean** | **64.2%** | **60.3%** |
 
 Chance level is 25%.
 
 ![Accuracy by subject](results/accuracy_by_subject.png)
 ![EEGNet vs CSP+LDA baseline](results/comparison_eegnet_vs_baseline.png)
 
-EEGNet slightly outperforms CSP+LDA overall - mean accuracy is 60.9% for EEGNet vs. 60.3% for the
-baseline - and wins 7 of the 9 subjects individually. This flipped from an earlier version of
-this project where EEGNet lost overall: that version turned out to have a bug (see "Training
-curve and an early-stopping mismatch" below) where the early-stopping fix I thought I'd made
-wasn't actually being applied when I trained all 9 subjects, so the numbers I was reporting were
-generated under the old, buggier setting. Fixing that changed subject 7 from a clear baseline win
-to a clear EEGNet win, which was enough to flip the overall average.
+The more representative summary of these results is the majority-of-seeds view from the
+stability checks below: across 5 tested seeds per subject, EEGNet beats CSP+LDA on a majority of
+seeds for 7 of 9 subjects, with a median-of-seeds mean of ~61.6% against the baseline's 60.3% - a
+real but modest +1.3 percentage point edge. The table above (64.2% vs. 60.3%, winning 6 of 9
+subjects) is what the single documented reproduction command actually produces at seed 42, and
+it's a real, reproducible result, but it isn't the most representative one - seed 42 is a
+demonstrated outlier for subjects 2, 8, and 9 specifically (see "How stable are these results?"
+below). Given the checkpoint-selection caveat above, either framing is best read as "EEGNet has a
+real, if modest, edge under this specific selection procedure" rather than a claim that it
+generalizes better in some dataset-independent sense.
 
-My guess for *why* performance is subject-dependent at all: a compact CNN with more free
-parameters probably overfits harder than CSP+LDA when the underlying EEG signal is weak, while it
-pulls ahead when the signal is stronger. I haven't actually tested that (e.g. varying training set
-size, checking train/val gaps per subject), so take it as a hypothesis, not a finding. What the
-data does show is that subject 6 is a genuinely hard subject for EEGNet specifically, not just
-a fluke of one run - see below.
+These numbers changed twice from earlier versions of this README, for two distinct reasons worth
+being explicit about. First, an early-stopping bug (see "Training curve and an early-stopping
+mismatch" below): `run_all_subjects.py` had `patience=15` hardcoded, silently overriding a
+since-changed default of 30, so early runs were cut off before their true accuracy peak. Second,
+and larger: the BatchNorm shape-inference bug described in Methodology above. Fixing that second
+bug changed subject 2 from EEGNet's worst result to a clear win and moved several other subjects
+too - it's most of the difference between the 60.9% mean reported in the previous version of this
+README and the current 64.2%.
+
+My guess for *why* performance is still subject-dependent at all, even after both fixes: a
+compact CNN with more free parameters probably overfits harder than CSP+LDA when the underlying
+EEG signal is weak, while it pulls ahead when the signal is stronger. I haven't actually tested
+that (e.g. varying training set size, checking train/val gaps per subject), so take it as a
+hypothesis, not a finding. Subject 6 looks like the most genuinely hard subject for EEGNet
+specifically - see the seed-stability section below, not just a fluke of one run.
 
 ### How stable are these results across random seeds?
 
 A single accuracy number per subject (one fixed random seed) can make a close result look more
-decisive than it is. I reran the 5 subjects with the smallest margins - 2, 5, 6, 7, and 9 - across
-5 different seeds to check:
+decisive - or a loss look more real - than it is. I reran all 9 subjects across 5 different seeds
+(0-4) to check how sensitive the results are to random initialization:
 
-| Subject | Baseline | Reported (seed 42) | Range across 5 seeds | Verdict |
-|---|---|---|---|---|
-| 2 | 48.6% | 37.5% (loss) | 38.2%-53.5%, median 52.4% | Toss-up - seed 42 happened to be the worst of the 5 seeds. Most seeds actually beat the baseline. |
-| 5 | 35.8% | 41.7% (win) | 36.1%-44.1%, median 41.0% | Stable win - every seed beat the baseline. |
-| 6 | 46.5% | 36.8% (loss) | 35.8%-49.7%, median 39.9% | Stable loss - only 1 of 5 seeds beat the baseline. |
-| 7 | 62.8% | 66.0% (win) | 48.6%-70.1%, median 68.8% | Real win, but noisy - 4 of 5 seeds clustered well above baseline; one seed landed on a genuinely bad local optimum (confirmed by rerunning its full training curve - early stopping worked correctly, it just converged somewhere worse). |
-| 9 | 76.7% | 77.8% (win) | 77.8%-81.9%, median 81.6% | Very stable win - every seed beat the baseline comfortably. |
+| Subject | Baseline | Reported (seed 42) | Range across 5 tested seeds | Median | Seeds beating baseline | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | 69.1% | 75.3% (win) | 69.4%-76.7% | 74.7% | 5 of 5 | Robust win. |
+| 2 | 48.6% | 55.2% (win) | 35.1%-56.2% | 36.1% | 1 of 5 | Reported win looks like an upside outlier - only 1 of 5 tested seeds also beat the baseline. Most likely close to a tie or a slight loss for EEGNet here, not a confident win. |
+| 3 | 73.6% | 81.9% (win) | 79.9%-87.8% | 86.5% | 5 of 5 | Robust win - and the seed-42 number actually understates it; the median across tested seeds (86.5%) is higher than the reported 81.9%. |
+| 4 | 54.9% | 60.1% (win) | 56.2%-59.7% | 58.7% | 5 of 5 | Robust win - every tested seed beat the baseline, and the range is tight (stdev 1.4pp). |
+| 5 | 35.8% | 42.4% (win) | 35.8%-44.1% | 37.5% | 4 of 5 | Real but modest win - one tested seed ties the baseline exactly, the rest beat it. |
+| 6 | 46.5% | 43.4% (loss) | 34.0%-48.3% | 37.5% | 1 of 5 | Robust loss - only 1 of 5 tested seeds beat the baseline, consistent with the reported result. This looks like EEGNet's most genuinely hard subject. |
+| 7 | 62.8% | 70.1% (win) | 45.5%-72.9% | 66.0% | 4 of 5 | Solid win, some noise - 4 of 5 tested seeds beat the baseline; one seed (45.5%) scored well below the rest of the range without changing the overall verdict. |
+| 8 | 74.7% | 73.6% (loss) | 75.0%-78.1% | 75.3% | 5 of 5 | Reported loss looks like a seed-42 fluke - every one of the 5 tested seeds beat the baseline, and seed 42's score sits below that entire range. |
+| 9 | 76.7% | 75.3% (loss) | 80.2%-83.3% | 81.9% | 5 of 5 | Same pattern as subject 8 - every tested seed beat the baseline comfortably, and seed 42's reported loss looks like an unlucky draw rather than the "true" result. |
 
-Net effect on the headline: subject 6 is a real, reproducible loss for EEGNet. Subject 2 is
-genuinely ambiguous - I'm reporting it as a loss above because that's what seed 42 produced, but
-a majority of seeds say otherwise, so I wouldn't read much into that single subject either way.
-Subjects 1, 3, 4, and 8 weren't close enough to the baseline to be worth this check.
+Two ways to summarize this, both defensible and not quite the same:
+
+- **What the documented reproduction commands literally produce** (seed 42 for every subject):
+  EEGNet 64.2% mean, winning 6 of 9 subjects, losing 6, 8, and 9.
+- **A majority-of-seeds view** (using "at least 3 of 5 tested seeds beat baseline" as the win/loss
+  criterion, and the per-subject median instead of the single seed-42 value): EEGNet wins 7 of 9
+  subjects, losing only 2 and 6, with a median-of-seeds mean of ~61.6% - a +1.3-point edge over
+  the 60.3% baseline instead of +3.9 points.
+
+Neither framing is more "correct" in an absolute sense - the seed-42 numbers are exactly
+reproducible from the commands in this README, and the majority-of-seeds view is more
+representative of the method's typical behavior. I'm leading with the majority-of-seeds view (7
+of 9 subjects, ~61.6% mean) as the headline throughout the rest of this document, and treating
+the seed-42 numbers (64.2% mean, 6 of 9 subjects) as what a literal run of the documented
+commands produces rather than as the primary claim, because subjects 2, 8, and 9 in particular
+are misleading at that one seed: subject 2's "win" is the fragile one, and subjects 8 and 9's
+"losses" are most likely seed-42-specific flukes rather than a real EEGNet weakness. Subject 6 is
+the one result that looks genuinely stable in both directions - a real, reproducible loss for
+EEGNet, and the strongest candidate for "EEGNet's actually-hardest subject."
 
 ### Did tuning the baseline help?
 
@@ -112,41 +166,49 @@ session during selection.
 
 It didn't help - mean accuracy across subjects dropped slightly, from 60.3% to 59.7%, and got
 worse specifically for subjects 1, 6, and 7. This isn't a bug in the tuning (the cross-validation
-is done correctly, with no leakage from the validation session). My read is that it's a real
-property of this dataset: the two sessions were recorded on different days, and EEG signal
-statistics are known to drift between recording sessions (a well-documented issue in BCI
-research). Hyperparameters chosen by cross-validating within one session don't necessarily
-transfer to a different day's recording. So the untuned baseline above isn't lucky - it's roughly
-as good as anything a proper search finds, which says something about this dataset more than
-about the tuning method.
+is done correctly, with no leakage from the validation session). My best guess is that it's
+related to session-to-session non-stationarity: the two sessions were recorded on different days,
+and EEG signal statistics are known to drift between recording sessions (a well-documented issue
+in BCI research), so hyperparameters chosen by cross-validating within one session might not
+transfer well to a different day's recording. I haven't actually tested that explanation (e.g. by
+checking how much the CV-selected hyperparameters differ from the fixed ones, or by
+cross-validating across sessions instead of within one), so treat it as a hypothesis, not a
+demonstrated cause - what I can say for sure is that tuning didn't help here, not fully why.
 
-### Confusion matrices: subject 3 vs subject 6
+### Confusion matrices: subject 3 (best), subject 6 (hardest), subject 2 (most bug-affected)
 
-Comparing EEGNet's best and worst subjects shows the *type* of error is different, not just the
-rate.
-
-Subject 6 (36.8%): three of the four classes (`feet`, `left_hand`, `tongue`) sit around
-40% recall; `right_hand` is the weak point at 25% recall - barely above chance for that class
-specifically. The single biggest source of confusion is `right_hand` trials predicted as
-`left_hand` (22 of 72) - right_hand and left_hand get mixed up with each other more than any
-other pair. That's the opposite of subject 3's pattern below, where left/right hand were the two
-*best*-separated classes. So this isn't uniformly bad classification - it's one class doing much
-worse than the rest, and specifically confusable with its mirror-image class, which is a more
-interesting (and more accurate) description than "close to random."
+Subject 6 (43.4%, EEGNet's one genuinely stable loss - see the stability table above): all four
+classes are weak, but `right_hand` is still the low point at 37.5% recall - up from the pre-fix
+25% (exact chance), so the BatchNorm fix helped here too, just not enough to close the gap with
+the baseline. The single biggest source of confusion is still `right_hand` trials predicted as
+`left_hand` (27 of 72) - the same mirror-image confusion pattern the pre-fix model showed, just
+with different counts. That's the opposite of subject 3's pattern below, where left/right hand
+were the two *best*-separated classes.
 
 ![Subject 6 confusion matrix](results/confusion_subject6.png)
 
-Subject 3 (79.9%): the errors have structure. `left_hand` and `right_hand` recall are 91.7% and
-94.4% - almost never confused with each other. That's *consistent with* the expected spatial
-organization of motor cortex activity (left/right hand imagery activates opposite hemispheres,
-which tends to be easier to separate from EEG) - though a single confusion matrix can't prove
-that's the mechanism, it's a plausible read given the literature, not a demonstrated explanation.
-`feet` is this subject's weakest class at 52.8% recall, confused with all three other classes
-about equally - foot motor representation is more medial and less lateralized, which is a harder
-case to decode and matches what's reported in the literature. (This is one subject picked to
-illustrate the best case in detail, not a claim that it's representative of all nine.)
+Subject 3 (81.9%): `right_hand` recall is 97.2%, `left_hand` 80.6% - the two best-separated
+classes, *consistent with* the expected spatial organization of motor cortex activity (left/right
+hand imagery activates opposite hemispheres, which tends to be easier to separate from EEG),
+though a single confusion matrix can't prove that's the mechanism. `feet` is this subject's
+weakest class at 63.9% recall, confused with all three other classes without one dominant error
+pair. (This is one subject picked to illustrate the best case in detail, not a claim that it's
+representative of all nine.) Seed-42 actually understates this subject's typical performance too -
+see the stability table above, where the 5-seed median is 86.5% against the reported 81.9%.
 
 ![Subject 3 confusion matrix](results/confusion_subject3.png)
+
+Subject 2 (55.2%) is worth a specific look because it's the subject the BatchNorm bug affected
+most: before the fix this was EEGNet's single worst result (37.5%, an 11.1-point loss); after it,
+a 6.6-point win. The fixed model classifies `feet` very well (87.5% recall) but still tangles up
+`left_hand`, `right_hand`, and `tongue` with each other - the single biggest confusion is
+`tongue` trials predicted as `right_hand` (26 of 72), with `right_hand` trials predicted as
+`left_hand` close behind (23 of 72). And per the stability table above, this "win" is itself
+fragile: only 1 of 5 tested seeds also beat the baseline, so I'd describe subject 2 as
+"meaningfully improved by the bug fix, but not a confidently-won subject" rather than a clean
+success story.
+
+![Subject 2 confusion matrix](results/confusion_subject2.png)
 
 ### Training curve and an early-stopping mismatch
 
@@ -162,17 +224,20 @@ care about: early stopping was tracking validation *loss*, but loss and accuracy
 necessarily peak at the same epoch. A tighter loss-based stopping threshold cut training off at
 epoch 61 and missed a later accuracy peak at epoch 85 (0.757 vs. 0.799 final accuracy). Since
 this model trains in under a minute regardless, I made early stopping more lenient
-(`patience=30`) rather than tune it to save a few seconds of runtime - the checkpoint logic
-already saves whichever epoch had the best validation accuracy, so there's no benefit to cutting
-training off aggressively.
+(`patience=30`) rather than tune it to save a few seconds of runtime - letting training run
+longer gives the checkpoint-saving logic more epochs in which to find a higher validation-accuracy
+epoch to save.
 
 Worth being explicit about: I made this change *because* I saw a better peak on session E's
 accuracy curve, not as a decision fixed in advance. That's session E informing a training
 decision, not just evaluating a frozen one - the same caveat as the checkpoint-selection point
-above, just one step earlier in the process. I'm not aware of a way this specific change could
-have hurt the baseline's comparison (it only affects how long EEGNet trains), but it's still
-worth naming as adaptive reuse of the evaluation session rather than treating patience=30 as if
-it were chosen a priori.
+above, just one step earlier in the process. And I don't think this change is fully neutral with
+respect to the comparison, either: more epochs means more chances for the "best of many looks at
+session E" checkpoint-selection advantage described above to land on a higher peak, so a longer
+patience plausibly widens whatever selection advantage EEGNet already has over the baseline's
+single deterministic fit. I don't have a clean way to quantify that here, but it's the same
+underlying issue as the checkpoint-selection caveat, not a separate, harmless one - I shouldn't
+have claimed earlier that it couldn't have affected the comparison.
 
 That fix only changed `train.py`'s own default, though - the script that trains all 9 subjects
 (`run_all_subjects.py`) had `patience=15` hardcoded separately, silently overriding it. So the
@@ -232,8 +297,12 @@ python -m src.run_all_subjects
 python -m src.baseline --all
 python -m src.baseline --all --tune
 python -m src.compare_baseline
+python -m src.analyze_subject --subject 2
+python -m src.analyze_subject --subject 3
 python -m src.analyze_subject --subject 6
-python -m src.seed_stability --subjects 2,5,6,7,9 --seeds 0,1,2,3,4
+python -m src.analyze_subject --subject 8
+python -m src.analyze_subject --subject 9
+python -m src.seed_stability --subjects 1,2,3,4,5,6,7,8,9 --seeds 0,1,2,3,4
 ```
 
 ## Possible extensions
@@ -246,7 +315,9 @@ python -m src.seed_stability --subjects 2,5,6,7,9 --seeds 0,1,2,3,4
   model can generalize across people instead of being trained per-subject.
 - Test the overfitting hypothesis directly (e.g. vary training set size, compare train/val gap
   per subject) instead of leaving it as a guess.
-- Extend the seed-stability check to the remaining subjects (1, 3, 4, 8) for completeness.
+- Investigate *why* seed 42 landed as an outlier for subjects 2, 8, and 9 specifically - more
+  seeds per subject, or digging into what's different about those particular runs, would help
+  tell "genuine training noise" apart from something more systematic about that one seed.
 - Dig into *why* baseline tuning didn't transfer across sessions - e.g. whether per-session
   recalibration (a common approach in real BCI systems) closes the gap.
 - Different frequency band (`fmin`/`fmax` in `dataset.py`) or epoch window (`tmin`/`tmax`).

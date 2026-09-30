@@ -86,6 +86,13 @@ def session_split(data: EEGData):
     train_mask = np.array(["train" in s.lower() or s.endswith("T") for s in data.sessions])
     n_train, n_total = int(train_mask.sum()), len(train_mask)
 
+    if len(unique_sessions) != 2:
+        raise ValueError(
+            f"session_split: expected exactly two sessions (session T / session E), but saw "
+            f"{len(unique_sessions)}: {unique_sessions}. Refusing to guess how to split more "
+            f"than two sessions into train/test."
+        )
+
     if n_train == 0 or n_train == n_total:
         raise ValueError(
             f"session_split: expected two distinct sessions to split on (e.g. "
