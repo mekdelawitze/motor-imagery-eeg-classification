@@ -68,9 +68,9 @@ def main():
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=data.label_names)
     fig, ax = plt.subplots(figsize=(5, 5))
     disp.plot(ax=ax, cmap="Blues", colorbar=False)
-    ax.set_title(f"Subject {args.subject} confusion matrix")
+    ax.set_title(f"Subject {args.subject} confusion matrix (seed {args.seed})")
     fig.tight_layout()
-    out_path = f"results/confusion_subject{args.subject}.png"
+    out_path = f"results/confusion_subject{args.subject}_seed{args.seed}.png"
     fig.savefig(out_path, dpi=150)
     print(f"\nsaved {out_path}")
 

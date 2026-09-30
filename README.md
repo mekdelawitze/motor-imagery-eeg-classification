@@ -17,7 +17,8 @@ loaded via [MOABB](https://neurotechx.github.io/moabb/) (MOABB names it `BNCI201
   what these numbers do and don't measure).
 - The single documented reproduction command (`run_all_subjects.py`, seed 42 for every subject)
   produces a larger-looking margin: 64.2% mean, winning 6 of 9 subjects and losing 6, 8, and 9.
-  That number is exactly reproducible from the commands below, but seed 42 is a documented
+  That number is what the commands below are set up to reproduce (see the note in "Reproducing
+  the results" on why the exact figures aren't guaranteed to match), but seed 42 is a documented
   outlier relative to the 5 separately tested seeds (0-4) for several subjects - for subject 2 it
   lands near the top of that tested range (higher than 4 of the 5, though not the single highest:
   one tested seed reached 56.2% vs. seed 42's 55.2%), and for subjects 8 and 9 it lands below the
@@ -127,8 +128,9 @@ The more representative summary of these results is the majority-of-seeds view f
 stability checks below: across 5 tested seeds per subject, EEGNet beats CSP+LDA on a majority of
 seeds for 7 of 9 subjects, with a median-of-seeds mean of ~61.6% against the baseline's 60.3% - a
 modest +1.3 percentage point difference. The table above (64.2% vs. 60.3%, winning 6 of 9
-subjects) is what the single documented reproduction command actually produces at seed 42, and
-it's an exactly reproducible result, but it isn't the most representative one - seed 42 is a
+subjects) is what the single documented reproduction command is set up to produce at seed 42
+(again, not a guarantee of an identical number - see "Reproducing the results"), but it isn't the
+most representative one - seed 42 is a
 demonstrated outlier for subjects 2, 8, and 9 specifically (see "How stable are these results?"
 below). Given the checkpoint-selection caveat above (EEGNet's reported number is the best of up
 to 100 per-epoch looks at session E; the baseline's is a single deterministic fit), either framing
@@ -179,8 +181,9 @@ Two ways to summarize this, both defensible and not quite the same:
   subjects, losing only 2 and 6, with a median-of-seeds mean of ~61.6% - a +1.3-point difference
   from the 60.3% baseline instead of +3.9 points.
 
-Neither framing is more "correct" in an absolute sense - the seed-42 numbers are exactly
-reproducible from the commands in this README, and the majority-of-seeds view is more
+Neither framing is more "correct" in an absolute sense - the seed-42 numbers are what the
+commands in this README are set up to reproduce (see the caveat in "Reproducing the results"),
+and the majority-of-seeds view is more
 representative of the method's typical behavior. I'm leading with the majority-of-seeds view (7
 of 9 subjects, ~61.6% mean) as the headline throughout the rest of this document, and treating
 the seed-42 numbers (64.2% mean, 6 of 9 subjects) as what a literal run of the documented
@@ -220,7 +223,7 @@ baseline. The single biggest source of confusion is still `right_hand` trials pr
 with different counts. That's the opposite of subject 3's pattern below, where left/right hand
 were the two *best*-separated classes.
 
-![Subject 6 confusion matrix](results/confusion_subject6.png)
+![Subject 6 confusion matrix (seed 42)](results/confusion_subject6_seed42.png)
 
 Subject 3 (81.9%): `right_hand` recall is 97.2%, `left_hand` 80.6% - the two best-separated
 classes, *consistent with* the expected spatial organization of motor cortex activity (left/right
@@ -231,7 +234,7 @@ pair. (This is one subject picked to illustrate the best case in detail, not a c
 representative of all nine.) Seed-42 actually understates this subject's typical performance too -
 see the stability table above, where the 5-seed median is 86.5% against the reported 81.9%.
 
-![Subject 3 confusion matrix](results/confusion_subject3.png)
+![Subject 3 confusion matrix (seed 42)](results/confusion_subject3_seed42.png)
 
 Subject 2 (55.2%) is worth a specific look because it's the subject the shape-inference fix
 affected most (see the Methodology note above on why that fix bundles a BatchNorm-statistics
@@ -245,7 +248,7 @@ fragile: only 1 of 5 tested seeds also beat the baseline, so I'd describe subjec
 "meaningfully improved by the bug fix, but not a confidently-won subject" rather than a clean
 success story.
 
-![Subject 2 confusion matrix](results/confusion_subject2.png)
+![Subject 2 confusion matrix (seed 42)](results/confusion_subject2_seed42.png)
 
 ### Training curve and an early-stopping mismatch
 
@@ -341,6 +344,12 @@ python -m src.analyze_subject --subject 8
 python -m src.analyze_subject --subject 9
 python -m src.seed_stability --subjects 1,2,3,4,5,6,7,8,9 --seeds 0,1,2,3,4
 ```
+
+These commands run the experiment used for the reported results - they don't guarantee identical
+output. Package versions (see `requirements.txt`), hardware, and PyTorch's `mps` backend (which
+lacks CUDA-equivalent deterministic-algorithm guarantees) can all affect the exact numbers you
+get, even with the same seed. Treat the numbers in this README as "what this experiment produced
+on one machine, at one point in time," not as a bitwise-reproducible artifact.
 
 ## Possible extensions
 
